@@ -9,6 +9,7 @@
 //! FF7: `--max-count=N` per-file match cap.
 //! FF8: `-v/--invert-match` print non-matching lines.
 //! FF9: `-N/--no-line-number`, `--column`, `--no-heading` printer flags.
+//! FF10: `-I/--no-filename` printer flag.
 
 use clap::Parser;
 use termcolor::ColorChoice;
@@ -122,6 +123,10 @@ pub struct Cli {
     /// Suppress file headings in the standard printer output.
     #[arg(long = "no-heading")]
     pub no_heading: bool,
+
+    /// Suppress the file path prefix on each matching line.
+    #[arg(short = 'I', long = "no-filename")]
+    pub no_filename: bool,
 }
 
 /// `--color` argument values, mapped to `termcolor::ColorChoice`.
