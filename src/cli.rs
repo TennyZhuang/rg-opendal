@@ -13,6 +13,7 @@
 //!        with auto-detection (single file → hide, multi file → show) per rg.
 //! FF11: `-0/--null` path terminator flag.
 //! FF12: `-z/--null-data` null-byte line terminator.
+//! FF13: `-a/--text` force text mode (disable binary detection).
 
 use clap::Parser;
 use termcolor::ColorChoice;
@@ -149,6 +150,11 @@ pub struct Cli {
     /// Allows searching files with NUL-separated records (standard rg `-z/--null-data`).
     #[arg(short = 'z', long = "null-data")]
     pub null_data: bool,
+
+    /// Force text mode: treat all files as text and search them even if they
+    /// appear to contain binary data (standard rg `-a/--text`).
+    #[arg(short = 'a', long = "text")]
+    pub text: bool,
 }
 
 /// `--color` argument values, mapped to `termcolor::ColorChoice`.
