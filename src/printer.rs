@@ -2,28 +2,29 @@
 //! human-readable output and JSON-lines output without duplicating the search
 //! loop.
 //!
-//! Both backends are built over the same underlying writer type (`NoColor<W>`),
-//! so tests can capture output into a `Vec<u8>`.
+//! The writer type is generic over `termcolor::WriteColor` so the binary can
+//! use `StandardStream` with color choice, while tests can capture output into
+//! a `Vec<u8>` via `NoColor` or `Ansi` wrappers.
 
-use std::io::{self, Write};
+use std::io;
 use std::path::Path;
 
 use grep_matcher::Matcher;
 use grep_printer::{JSON, JSONBuilder, JSONSink, Standard, StandardBuilder, StandardSink, Stats};
 use grep_searcher::Sink;
-use termcolor::NoColor;
+use termcolor::WriteColor;
 
 /// Active printer. Owns the output writer and produces per-file sinks.
-pub enum Printer<W: Write> {
-    Standard(Standard<NoColor<W>>),
-    Json(JSON<NoColor<W>>),
+pub enum Printer<W: WriteColor> {
+    Standard(Standard<W>),
+    Json(JSON<W>),
 }
 
-impl<W: Write> Printer<W> {
+impl<W: WriteColor> Printer<W> {
     /// Build a standard (human-readable) printer.
     ///
     /// `stats` controls whether the printer gathers per-file statistics.
-    pub fn standard(wtr: NoColor<W>, stats: bool) -> Self {
+    pub fn standard(wtr: W, stats: bool) -> Self {
         Printer::Standard(
             StandardBuilder::new()
                 .heading(false)
@@ -34,7 +35,7 @@ impl<W: Write> Printer<W> {
     }
 
     /// Build a JSON-lines printer.
-    pub fn json(wtr: NoColor<W>) -> Self {
+    pub fn json(wtr: W) -> Self {
         Printer::Json(JSONBuilder::new().build(wtr))
     }
 
@@ -54,12 +55,12 @@ impl<W: Write> Printer<W> {
 }
 
 /// Per-file sink that delegates to whichever printer backend is active.
-pub enum PrinterSink<'p, 's, M: Matcher, W: Write> {
-    Standard(StandardSink<'p, 's, M, NoColor<W>>),
-    Json(JSONSink<'p, 's, M, NoColor<W>>),
+pub enum PrinterSink<'p, 's, M: Matcher, W: WriteColor> {
+    Standard(StandardSink<'p, 's, M, W>),
+    Json(JSONSink<'p, 's, M, W>),
 }
 
-impl<'p, 's, M: Matcher, W: Write> PrinterSink<'p, 's, M, W> {
+impl<'p, 's, M: Matcher, W: WriteColor> PrinterSink<'p, 's, M, W> {
     /// Returns true if the current file contained at least one match.
     pub fn has_match(&self) -> bool {
         match self {
@@ -80,7 +81,7 @@ impl<'p, 's, M: Matcher, W: Write> PrinterSink<'p, 's, M, W> {
     }
 }
 
-impl<'p, 's, M: Matcher, W: Write> Sink for PrinterSink<'p, 's, M, W> {
+impl<'p, 's, M: Matcher, W: WriteColor> Sink for PrinterSink<'p, 's, M, W> {
     type Error = io::Error;
 
     fn matched(
@@ -153,7 +154,7 @@ mod tests {
     use super::*;
     use grep_regex::RegexMatcher;
     use grep_searcher::SearcherBuilder;
-    use termcolor::NoColor;
+    use termcolor::{Ansi, NoColor};
 
     #[test]
     fn standard_printer_tracks_matches_and_stats() {
@@ -232,5 +233,29 @@ mod tests {
         assert!(output.contains("line one"));
         assert!(output.contains("line two foo"));
         assert!(output.contains("line three"));
+    }
+
+    #[test]
+    fn standard_printer_emits_color_with_ansi_writer() {
+        let buf = Vec::new();
+        let mut printer = Printer::standard(Ansi::new(buf), false);
+        let matcher = RegexMatcher::new("foo").unwrap();
+        let mut searcher = SearcherBuilder::new().line_number(true).build();
+        let data = b"line two foo\n";
+
+        {
+            let mut sink = printer.sink_with_path(&matcher, Path::new("test.txt"));
+            searcher
+                .search_reader(&matcher, &data[..], &mut sink)
+                .unwrap();
+        }
+
+        let output = match printer {
+            Printer::Standard(p) => String::from_utf8(p.into_inner().into_inner()).unwrap(),
+            Printer::Json(_) => panic!("expected standard printer"),
+        };
+        // The match line should contain ANSI escape sequences when color is enabled.
+        assert!(output.contains("foo"));
+        assert!(output.contains('\x1b'), "expected ANSI escape codes in colored output: {output:?}");
     }
 }
