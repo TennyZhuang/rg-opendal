@@ -10,7 +10,10 @@ use std::io;
 use std::path::Path;
 
 use grep_matcher::Matcher;
-use grep_printer::{JSON, JSONBuilder, JSONSink, Standard, StandardBuilder, StandardSink, Stats};
+use grep_printer::{
+    JSON, JSONBuilder, JSONSink, Standard, StandardBuilder, StandardSink, Stats, Summary,
+    SummaryBuilder, SummaryKind, SummarySink,
+};
 use grep_searcher::Sink;
 use termcolor::WriteColor;
 
@@ -18,6 +21,7 @@ use termcolor::WriteColor;
 pub enum Printer<W: WriteColor> {
     Standard(Standard<W>),
     Json(JSON<W>),
+    Summary(Summary<W>),
 }
 
 impl<W: WriteColor> Printer<W> {
@@ -39,6 +43,17 @@ impl<W: WriteColor> Printer<W> {
         Printer::Json(JSONBuilder::new().build(wtr))
     }
 
+    /// Build a summary printer (e.g. `-c/--count` or `-l/--files-with-matches`).
+    pub fn summary(wtr: W, kind: SummaryKind, stats: bool) -> Self {
+        Printer::Summary(
+            SummaryBuilder::new()
+                .kind(kind)
+                .stats(stats)
+                .path(true)
+                .build(wtr),
+        )
+    }
+
     /// Create a sink for the next file.
     pub fn sink_with_path<'p, 's, M: Matcher>(
         &'s mut self,
@@ -46,10 +61,9 @@ impl<W: WriteColor> Printer<W> {
         path: &'p Path,
     ) -> PrinterSink<'p, 's, M, W> {
         match self {
-            Printer::Standard(p) => {
-                PrinterSink::Standard(p.sink_with_path(matcher, path))
-            }
+            Printer::Standard(p) => PrinterSink::Standard(p.sink_with_path(matcher, path)),
             Printer::Json(p) => PrinterSink::Json(p.sink_with_path(matcher, path)),
+            Printer::Summary(p) => PrinterSink::Summary(p.sink_with_path(matcher, path)),
         }
     }
 }
@@ -58,6 +72,7 @@ impl<W: WriteColor> Printer<W> {
 pub enum PrinterSink<'p, 's, M: Matcher, W: WriteColor> {
     Standard(StandardSink<'p, 's, M, W>),
     Json(JSONSink<'p, 's, M, W>),
+    Summary(SummarySink<'p, 's, M, W>),
 }
 
 impl<'p, 's, M: Matcher, W: WriteColor> PrinterSink<'p, 's, M, W> {
@@ -66,6 +81,7 @@ impl<'p, 's, M: Matcher, W: WriteColor> PrinterSink<'p, 's, M, W> {
         match self {
             PrinterSink::Standard(s) => s.has_match(),
             PrinterSink::Json(s) => s.has_match(),
+            PrinterSink::Summary(s) => s.has_match(),
         }
     }
 
@@ -73,10 +89,12 @@ impl<'p, 's, M: Matcher, W: WriteColor> PrinterSink<'p, 's, M, W> {
     ///
     /// * Standard: only when `.stats(true)` was set on the builder.
     /// * JSON: always tracked.
+    /// * Summary: only when `.stats(true)` was set on the builder.
     pub fn stats(&self) -> Option<&Stats> {
         match self {
             PrinterSink::Standard(s) => s.stats(),
             PrinterSink::Json(s) => Some(s.stats()),
+            PrinterSink::Summary(s) => s.stats(),
         }
     }
 }
@@ -92,6 +110,7 @@ impl<'p, 's, M: Matcher, W: WriteColor> Sink for PrinterSink<'p, 's, M, W> {
         match self {
             PrinterSink::Standard(s) => s.matched(searcher, mat),
             PrinterSink::Json(s) => s.matched(searcher, mat),
+            PrinterSink::Summary(s) => s.matched(searcher, mat),
         }
     }
 
@@ -103,6 +122,7 @@ impl<'p, 's, M: Matcher, W: WriteColor> Sink for PrinterSink<'p, 's, M, W> {
         match self {
             PrinterSink::Standard(s) => s.context(searcher, context),
             PrinterSink::Json(s) => s.context(searcher, context),
+            PrinterSink::Summary(s) => s.context(searcher, context),
         }
     }
 
@@ -113,6 +133,7 @@ impl<'p, 's, M: Matcher, W: WriteColor> Sink for PrinterSink<'p, 's, M, W> {
         match self {
             PrinterSink::Standard(s) => s.context_break(searcher),
             PrinterSink::Json(s) => s.context_break(searcher),
+            PrinterSink::Summary(s) => s.context_break(searcher),
         }
     }
 
@@ -124,6 +145,7 @@ impl<'p, 's, M: Matcher, W: WriteColor> Sink for PrinterSink<'p, 's, M, W> {
         match self {
             PrinterSink::Standard(s) => s.binary_data(searcher, binary_byte_offset),
             PrinterSink::Json(s) => s.binary_data(searcher, binary_byte_offset),
+            PrinterSink::Summary(s) => s.binary_data(searcher, binary_byte_offset),
         }
     }
 
@@ -134,6 +156,7 @@ impl<'p, 's, M: Matcher, W: WriteColor> Sink for PrinterSink<'p, 's, M, W> {
         match self {
             PrinterSink::Standard(s) => s.begin(searcher),
             PrinterSink::Json(s) => s.begin(searcher),
+            PrinterSink::Summary(s) => s.begin(searcher),
         }
     }
 
@@ -145,6 +168,7 @@ impl<'p, 's, M: Matcher, W: WriteColor> Sink for PrinterSink<'p, 's, M, W> {
         match self {
             PrinterSink::Standard(s) => s.finish(searcher, finish),
             PrinterSink::Json(s) => s.finish(searcher, finish),
+            PrinterSink::Summary(s) => s.finish(searcher, finish),
         }
     }
 }
@@ -197,6 +221,7 @@ mod tests {
         let output = match printer {
             Printer::Json(p) => String::from_utf8(p.into_inner().into_inner()).unwrap(),
             Printer::Standard(_) => panic!("expected JSON printer"),
+            Printer::Summary(_) => panic!("expected JSON printer"),
         };
         // JSON-lines format: each line is a JSON object with a "type" key.
         assert!(!output.is_empty());
@@ -228,11 +253,61 @@ mod tests {
         let output = match printer {
             Printer::Standard(p) => String::from_utf8(p.into_inner().into_inner()).unwrap(),
             Printer::Json(_) => panic!("expected standard printer"),
+            Printer::Summary(_) => panic!("expected standard printer"),
         };
         // Match line plus one before and one after context line.
         assert!(output.contains("line one"));
         assert!(output.contains("line two foo"));
         assert!(output.contains("line three"));
+    }
+
+    #[test]
+    fn summary_count_printer_emits_per_file_counts() {
+        let buf = Vec::new();
+        let mut printer = Printer::summary(NoColor::new(buf), SummaryKind::Count, false);
+        let matcher = RegexMatcher::new("foo").unwrap();
+        let mut searcher = SearcherBuilder::new().line_number(true).build();
+        let data = b"foo foo\nbar\nfoo baz\n";
+
+        {
+            let mut sink = printer.sink_with_path(&matcher, Path::new("test.txt"));
+            searcher
+                .search_reader(&matcher, &data[..], &mut sink)
+                .unwrap();
+            assert!(sink.has_match());
+        }
+
+        let output = match printer {
+            Printer::Summary(p) => String::from_utf8(p.into_inner().into_inner()).unwrap(),
+            _ => panic!("expected summary printer"),
+        };
+        // Count mode counts matching lines (two lines contain 'foo').
+        assert!(output.contains("test.txt"));
+        assert!(output.contains('2'), "expected count 2 in output: {output:?}");
+    }
+
+    #[test]
+    fn summary_files_with_matches_printer_emits_only_paths() {
+        let buf = Vec::new();
+        let mut printer = Printer::summary(NoColor::new(buf), SummaryKind::PathWithMatch, false);
+        let matcher = RegexMatcher::new("foo").unwrap();
+        let mut searcher = SearcherBuilder::new().line_number(true).build();
+        let data = b"line one\nline two foo\n";
+
+        {
+            let mut sink = printer.sink_with_path(&matcher, Path::new("test.txt"));
+            searcher
+                .search_reader(&matcher, &data[..], &mut sink)
+                .unwrap();
+            assert!(sink.has_match());
+        }
+
+        let output = match printer {
+            Printer::Summary(p) => String::from_utf8(p.into_inner().into_inner()).unwrap(),
+            _ => panic!("expected summary printer"),
+        };
+        assert!(output.contains("test.txt"));
+        assert!(!output.contains("foo"), "expected only path output: {output:?}");
     }
 
     #[test]
@@ -253,6 +328,7 @@ mod tests {
         let output = match printer {
             Printer::Standard(p) => String::from_utf8(p.into_inner().into_inner()).unwrap(),
             Printer::Json(_) => panic!("expected standard printer"),
+            Printer::Summary(_) => panic!("expected standard printer"),
         };
         // The match line should contain ANSI escape sequences when color is enabled.
         assert!(output.contains("foo"));
