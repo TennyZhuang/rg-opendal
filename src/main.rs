@@ -8,11 +8,12 @@ use clap::Parser;
 use cli::{Cli, Target};
 use grep_printer::Stats;
 use grep_regex::RegexMatcher;
-use grep_searcher::SearcherBuilder;
+use grep_searcher::{Searcher, SearcherBuilder};
 use opendal::{services::S3, Operator};
 use std::io::Write;
 use std::path::Path;
 use termcolor::NoColor;
+use tokio::runtime::{Handle, Runtime};
 
 fn build_s3_operator(bucket: &str) -> Result<Operator> {
     let mut builder = S3::default().bucket(bucket);
@@ -32,14 +33,6 @@ fn build_matcher(pattern: &str, ignore_case: bool) -> Result<RegexMatcher> {
     } else {
         RegexMatcher::new(pattern).with_context(|| format!("invalid regex: {pattern}"))
     }
-}
-
-/// Construct a `Read` over `data`. Today this is always the full-buffer
-/// `BufReader`; once Pi's `StreamingBufReader` is promoted into
-/// `opendal_io`, this is the call site that swaps to it (with a `Handle`
-/// threaded through for the chunk-at-a-time bridge).
-fn make_reader(data: Vec<u8>) -> opendal_io::BufReader {
-    opendal_io::BufReader::new(data)
 }
 
 /// Resolve context-line counts. Explicit `-A`/`-B` override `-C`; `-C`
@@ -62,8 +55,53 @@ fn print_stats(stats: &Stats) {
     eprintln!("{:.6} seconds spent searching", stats.elapsed().as_secs_f64());
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+/// Search a single object. Branches on `streaming`:
+/// - false (default): full-buffer `BufReader` (Seam C). Matrix v2.7 row #3
+///   shows this is 1.8–4.0× faster than streaming on local minio.
+/// - true: `StreamingBufReader` over `Reader::into_stream` (Seam A). Lower
+///   peak memory (~1 chunk ≈ 200 KB) at the cost of one `block_on` per
+///   chunk transition.
+///
+/// `handle` must be from a runtime that does NOT have main as one of its
+/// worker threads — otherwise the `block_on` calls inside `StreamingBufReader`
+/// would deadlock.
+fn search_one_object<S: grep_searcher::Sink>(
+    handle: &Handle,
+    op: &Operator,
+    path: &str,
+    streaming: bool,
+    searcher: &mut Searcher,
+    matcher: &RegexMatcher,
+    sink: &mut S,
+) -> Result<()>
+where
+    S::Error: std::error::Error + Send + Sync + 'static,
+{
+    if streaming {
+        let reader_async = handle
+            .block_on(async { op.reader(path).await })
+            .with_context(|| format!("opening streaming reader for {path}"))?;
+        let stream = handle
+            .block_on(async { reader_async.into_stream(..).await })
+            .with_context(|| format!("opening byte stream for {path}"))?;
+        let mut reader = opendal_io::StreamingBufReader::new(stream, handle.clone());
+        searcher
+            .search_reader(matcher, &mut reader, sink)
+            .with_context(|| format!("search failed for {path}"))?;
+    } else {
+        let data = handle
+            .block_on(async { op.read(path).await })
+            .with_context(|| format!("reading {path}"))?
+            .to_vec();
+        let mut reader = opendal_io::BufReader::new(data);
+        searcher
+            .search_reader(matcher, &mut reader, sink)
+            .with_context(|| format!("search failed for {path}"))?;
+    }
+    Ok(())
+}
+
+fn main() -> Result<()> {
     let cli = Cli::parse();
 
     let target = Target::parse(&cli.target)?;
@@ -81,6 +119,13 @@ async fn main() -> Result<()> {
         printer::Printer::standard(NoColor::new(std::io::stdout()), cli.stats)
     };
 
+    // Drive async OpenDAL operations from a side runtime; main is NOT a
+    // worker of that runtime, so calling `handle.block_on` from main is safe
+    // and is what makes `StreamingBufReader::read` (which also calls
+    // `block_on` on this same handle) deadlock-free under `--streaming`.
+    let rt = Runtime::new().context("creating tokio runtime")?;
+    let handle = rt.handle().clone();
+
     let mut any_match = false;
     let mut aggregate_stats = Stats::new();
 
@@ -88,25 +133,26 @@ async fn main() -> Result<()> {
         Target::S3 { bucket, prefix } => {
             let op = build_s3_operator(bucket)?;
             let filter = walker::WalkFilter::new(&cli.globs, &cli.types, &cli.types_not)?;
-            let paths = walker::list_objects(&op, prefix, Some(&filter)).await?;
+            let paths = handle
+                .block_on(async { walker::list_objects(&op, prefix, Some(&filter)).await })?;
 
             for path in paths {
-                let data = match op.read(&path).await {
-                    Ok(buf) => buf.to_vec(),
-                    Err(e) => {
-                        eprintln!("rg-opendal: error reading {path}: {e}");
-                        continue;
-                    }
-                };
-
                 let display_path = format!("s3://{bucket}/{path}");
-                let mut reader = make_reader(data);
-
-                let mut sink = printer.sink_with_path(&matcher, Path::new(&display_path));
-                searcher
-                    .search_reader(&matcher, &mut reader, &mut sink)
-                    .with_context(|| format!("search failed for {display_path}"))?;
-
+                let mut sink =
+                    printer.sink_with_path(&matcher, Path::new(&display_path));
+                let res = search_one_object(
+                    &handle,
+                    &op,
+                    &path,
+                    cli.streaming,
+                    &mut searcher,
+                    &matcher,
+                    &mut sink,
+                );
+                if let Err(e) = res {
+                    eprintln!("rg-opendal: {e:#}");
+                    continue;
+                }
                 if sink.has_match() {
                     any_match = true;
                 }
@@ -165,5 +211,22 @@ mod tests {
     fn context_counts_default_to_zero() {
         let cli = Cli::parse_from(["rg-opendal", "pattern", "s3://bucket/prefix"]);
         assert_eq!(context_counts(&cli), (0, 0));
+    }
+
+    #[test]
+    fn streaming_flag_defaults_to_false() {
+        let cli = Cli::parse_from(["rg-opendal", "pattern", "s3://bucket/prefix"]);
+        assert!(!cli.streaming);
+    }
+
+    #[test]
+    fn streaming_flag_can_be_set() {
+        let cli = Cli::parse_from([
+            "rg-opendal",
+            "--streaming",
+            "pattern",
+            "s3://bucket/prefix",
+        ]);
+        assert!(cli.streaming);
     }
 }
