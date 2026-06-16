@@ -8,6 +8,7 @@
 //! FF6: `-w/--word-regexp` and `-x/--line-regexp`.
 //! FF7: `--max-count=N` per-file match cap.
 //! FF8: `-v/--invert-match` print non-matching lines.
+//! FF9: `-N/--no-line-number`, `--column`, `--no-heading` printer flags.
 
 use clap::Parser;
 use termcolor::ColorChoice;
@@ -109,6 +110,18 @@ pub struct Cli {
     /// Invert matching: print non-matching lines instead of matching ones.
     #[arg(short = 'v', long = "invert-match")]
     pub invert_match: bool,
+
+    /// Suppress line numbers in the standard printer output.
+    #[arg(short = 'N', long = "no-line-number")]
+    pub no_line_number: bool,
+
+    /// Show the column number of the first match in each line.
+    #[arg(long = "column")]
+    pub column: bool,
+
+    /// Suppress file headings in the standard printer output.
+    #[arg(long = "no-heading")]
+    pub no_heading: bool,
 }
 
 /// `--color` argument values, mapped to `termcolor::ColorChoice`.

@@ -136,7 +136,7 @@ fn main() -> Result<()> {
     )?;
     let (after_context, before_context) = context_counts(&cli);
     let mut searcher = SearcherBuilder::new()
-        .line_number(true)
+        .line_number(!cli.no_line_number)
         .after_context(after_context)
         .before_context(before_context)
         .max_matches(cli.max_count.map(|n| n as u64))
@@ -163,6 +163,8 @@ fn main() -> Result<()> {
         Printer::standard(
             StandardStream::stdout(cli.color.to_color_choice()),
             cli.stats,
+            cli.column,
+            !cli.no_heading,
         )
     };
 
@@ -535,5 +537,38 @@ mod tests {
             hits,
             vec![(2, "bar".to_string()), (4, "qux".to_string())]
         );
+    }
+
+    #[test]
+    fn no_line_number_flag_parses() {
+        let cli = Cli::parse_from([
+            "rg-opendal",
+            "-N",
+            "pattern",
+            "s3://bucket/prefix",
+        ]);
+        assert!(cli.no_line_number);
+    }
+
+    #[test]
+    fn column_flag_parses() {
+        let cli = Cli::parse_from([
+            "rg-opendal",
+            "--column",
+            "pattern",
+            "s3://bucket/prefix",
+        ]);
+        assert!(cli.column);
+    }
+
+    #[test]
+    fn no_heading_flag_parses() {
+        let cli = Cli::parse_from([
+            "rg-opendal",
+            "--no-heading",
+            "pattern",
+            "s3://bucket/prefix",
+        ]);
+        assert!(cli.no_heading);
     }
 }
