@@ -30,7 +30,7 @@ Output format matches `rg` default: `s3://bucket/path:LINE:CONTENT`. On single-f
 
 ## Features
 
-All output parity is verified against native `rg` on the same fixture.
+Output parity verified against native `rg` on the same fixture for FF1–FF12, FF16. FF2 type-filtering (`-t`/`-T`) is unit-test-level. FF13 (`-a`) is flag-acceptance smoke.
 
 | Flag | Feature | Status |
 |------|---------|:------:|
@@ -95,7 +95,8 @@ cargo test --release
 
 For local development with [MinIO](https://min.io): start MinIO on port 9000, set the env vars above with `minioadmin`/`minioadmin` credentials, and use `s3://my-bucket/` as the target.
 
-```bashn# Start a local MinIO for testingndocker run -d -p 9000:9000 -p 9001:9001 \n  -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \n  minio/minio server /data --console-address :9001n```
+```bash
+# Start a local MinIO for testingndocker run -d -p 9000:9000 -p 9001:9001 \n  -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \n  minio/minio server /data --console-address :9001n```
 
 ## Architecture
 
