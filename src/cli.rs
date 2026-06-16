@@ -3,8 +3,10 @@
 //! FF1: pattern + s3:// URL + `-i`.
 //! FF2: `--glob/-g`, `--type/-t`, `--type-not/-T` over object keys.
 //! FF3: `--json`, `--stats`, `-A/-B/-C` context lines.
+//! FF4: `--color` output coloring.
 
 use clap::Parser;
+use termcolor::ColorChoice;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -64,6 +66,34 @@ pub struct Cli {
     /// row #3 measured 1.8–4.0× the wall time of Seam C on local minio.
     #[arg(long = "streaming")]
     pub streaming: bool,
+
+    /// When to use colors in the output. Only affects the standard printer;
+    /// `--json` output is never colored.
+    #[arg(long = "color", value_enum, default_value_t = ColorArg::Auto)]
+    pub color: ColorArg,
+}
+
+/// `--color` argument values, mapped to `termcolor::ColorChoice`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, clap::ValueEnum)]
+pub enum ColorArg {
+    /// Use colors if stdout is a terminal.
+    #[default]
+    Auto,
+    /// Always use colors.
+    Always,
+    /// Never use colors.
+    Never,
+}
+
+impl ColorArg {
+    /// Convert to `termcolor::ColorChoice` for the standard printer.
+    pub fn to_color_choice(self) -> ColorChoice {
+        match self {
+            ColorArg::Auto => ColorChoice::Auto,
+            ColorArg::Always => ColorChoice::Always,
+            ColorArg::Never => ColorChoice::Never,
+        }
+    }
 }
 
 pub enum Target<'a> {

@@ -4,12 +4,12 @@ use grep_printer::Stats;
 use grep_regex::RegexMatcher;
 use grep_searcher::{Searcher, SearcherBuilder};
 use opendal::{services::S3, Operator};
-use rg_opendal::cli::{Cli, Target};
+use rg_opendal::cli::{Cli, ColorArg, Target};
 use rg_opendal::printer::Printer;
 use rg_opendal::{opendal_io, walker};
 use std::io::Write;
 use std::path::Path;
-use termcolor::NoColor;
+use termcolor::{ColorChoice, StandardStream};
 use tokio::runtime::{Handle, Runtime};
 
 fn build_s3_operator(bucket: &str) -> Result<Operator> {
@@ -111,9 +111,14 @@ fn main() -> Result<()> {
         .build();
 
     let mut printer = if cli.json {
-        Printer::json(NoColor::new(std::io::stdout()))
+        // JSON output is never colored; using a color-capable writer keeps the
+        // Printer type identical in both branches without affecting JSON.
+        Printer::json(StandardStream::stdout(ColorChoice::Never))
     } else {
-        Printer::standard(NoColor::new(std::io::stdout()), cli.stats)
+        Printer::standard(
+            StandardStream::stdout(cli.color.to_color_choice()),
+            cli.stats,
+        )
     };
 
     // Drive async OpenDAL operations from a side runtime; main is NOT a
@@ -225,5 +230,42 @@ mod tests {
             "s3://bucket/prefix",
         ]);
         assert!(cli.streaming);
+    }
+
+    #[test]
+    fn color_defaults_to_auto() {
+        let cli = Cli::parse_from(["rg-opendal", "pattern", "s3://bucket/prefix"]);
+        assert_eq!(cli.color, ColorArg::Auto);
+    }
+
+    #[test]
+    fn color_can_be_always() {
+        let cli = Cli::parse_from([
+            "rg-opendal",
+            "--color",
+            "always",
+            "pattern",
+            "s3://bucket/prefix",
+        ]);
+        assert_eq!(cli.color, ColorArg::Always);
+    }
+
+    #[test]
+    fn color_can_be_never() {
+        let cli = Cli::parse_from([
+            "rg-opendal",
+            "--color",
+            "never",
+            "pattern",
+            "s3://bucket/prefix",
+        ]);
+        assert_eq!(cli.color, ColorArg::Never);
+    }
+
+    #[test]
+    fn color_choice_from_arg() {
+        assert_eq!(ColorArg::Auto.to_color_choice(), ColorChoice::Auto);
+        assert_eq!(ColorArg::Always.to_color_choice(), ColorChoice::Always);
+        assert_eq!(ColorArg::Never.to_color_choice(), ColorChoice::Never);
     }
 }
