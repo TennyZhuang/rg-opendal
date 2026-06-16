@@ -164,7 +164,7 @@ fn main() -> Result<()> {
             StandardStream::stdout(cli.color.to_color_choice()),
             cli.stats,
             cli.column,
-            !cli.no_heading,
+            cli.heading,
             cli.no_filename,
         )
     };
@@ -563,14 +563,20 @@ mod tests {
     }
 
     #[test]
-    fn no_heading_flag_parses() {
+    fn heading_defaults_to_false() {
+        let cli = Cli::parse_from(["rg-opendal", "pattern", "s3://bucket/prefix"]);
+        assert!(!cli.heading);
+    }
+
+    #[test]
+    fn heading_flag_parses() {
         let cli = Cli::parse_from([
             "rg-opendal",
-            "--no-heading",
+            "--heading",
             "pattern",
             "s3://bucket/prefix",
         ]);
-        assert!(cli.no_heading);
+        assert!(cli.heading);
     }
 
     #[test]

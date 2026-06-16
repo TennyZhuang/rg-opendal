@@ -8,7 +8,7 @@
 //! FF6: `-w/--word-regexp` and `-x/--line-regexp`.
 //! FF7: `--max-count=N` per-file match cap.
 //! FF8: `-v/--invert-match` print non-matching lines.
-//! FF9: `-N/--no-line-number`, `--column`, `--no-heading` printer flags.
+//! FF9: `-N/--no-line-number`, `--column`, `--heading` printer flags.
 //! FF10: `-I/--no-filename` printer flag.
 
 use clap::Parser;
@@ -120,9 +120,11 @@ pub struct Cli {
     #[arg(long = "column")]
     pub column: bool,
 
-    /// Suppress file headings in the standard printer output.
-    #[arg(long = "no-heading")]
-    pub no_heading: bool,
+    /// Group matches by file under a heading (path on its own line, then
+    /// path-prefix omitted on each match line). Default: off — native rg's
+    /// behavior for non-tty output is path-per-line.
+    #[arg(long = "heading")]
+    pub heading: bool,
 
     /// Suppress the file path prefix on each matching line.
     #[arg(short = 'I', long = "no-filename")]
