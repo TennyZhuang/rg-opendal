@@ -165,6 +165,7 @@ fn main() -> Result<()> {
             cli.stats,
             cli.column,
             !cli.no_heading,
+            cli.no_filename,
         )
     };
 
@@ -570,5 +571,33 @@ mod tests {
             "s3://bucket/prefix",
         ]);
         assert!(cli.no_heading);
+    }
+
+    #[test]
+    fn no_filename_defaults_to_false() {
+        let cli = Cli::parse_from(["rg-opendal", "pattern", "s3://bucket/prefix"]);
+        assert!(!cli.no_filename);
+    }
+
+    #[test]
+    fn no_filename_flag_parses() {
+        let cli = Cli::parse_from([
+            "rg-opendal",
+            "-I",
+            "pattern",
+            "s3://bucket/prefix",
+        ]);
+        assert!(cli.no_filename);
+    }
+
+    #[test]
+    fn no_filename_long_form_parses() {
+        let cli = Cli::parse_from([
+            "rg-opendal",
+            "--no-filename",
+            "pattern",
+            "s3://bucket/prefix",
+        ]);
+        assert!(cli.no_filename);
     }
 }
