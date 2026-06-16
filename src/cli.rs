@@ -10,6 +10,7 @@
 //! FF8: `-v/--invert-match` print non-matching lines.
 //! FF9: `-N/--no-line-number`, `--column`, `--heading` printer flags.
 //! FF10: `-I/--no-filename` printer flag.
+//! FF11: `-0/--null` path terminator flag.
 
 use clap::Parser;
 use termcolor::ColorChoice;
@@ -129,6 +130,10 @@ pub struct Cli {
     /// Suppress the file path prefix on each matching line.
     #[arg(short = 'I', long = "no-filename")]
     pub no_filename: bool,
+
+    /// Add a null byte after the file path (standard rg `-0/--null`).
+    #[arg(short = '0', long = "null")]
+    pub null: bool,
 }
 
 /// `--color` argument values, mapped to `termcolor::ColorChoice`.
