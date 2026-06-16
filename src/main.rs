@@ -140,6 +140,7 @@ fn main() -> Result<()> {
         .after_context(after_context)
         .before_context(before_context)
         .max_matches(cli.max_count.map(|n| n as u64))
+        .invert_match(cli.invert_match)
         .build();
 
     let mut printer = if cli.json {
@@ -480,5 +481,59 @@ mod tests {
         let m = build_matcher("foo", true, true, false).unwrap();
         assert!(m.is_match(b"a FOO b").unwrap());
         assert!(!m.is_match(b"FOOBAR").unwrap());
+    }
+
+    #[test]
+    fn invert_match_defaults_to_false() {
+        let cli = Cli::parse_from(["rg-opendal", "pattern", "s3://bucket/prefix"]);
+        assert!(!cli.invert_match);
+    }
+
+    #[test]
+    fn invert_match_flag_parses() {
+        let cli =
+            Cli::parse_from(["rg-opendal", "-v", "pattern", "s3://bucket/prefix"]);
+        assert!(cli.invert_match);
+    }
+
+    #[test]
+    fn invert_match_long_form_parses() {
+        let cli = Cli::parse_from([
+            "rg-opendal",
+            "--invert-match",
+            "pattern",
+            "s3://bucket/prefix",
+        ]);
+        assert!(cli.invert_match);
+    }
+
+    #[test]
+    fn searcher_invert_match_emits_non_matching_lines() {
+        use grep_searcher::sinks::UTF8;
+
+        let matcher = build_matcher("foo", false, false, false).unwrap();
+        let mut searcher = SearcherBuilder::new()
+            .line_number(true)
+            .invert_match(true)
+            .build();
+
+        let data = b"foo\nbar\nbaz foo\nqux\n";
+        let mut hits: Vec<(u64, String)> = Vec::new();
+        searcher
+            .search_reader(
+                &matcher,
+                &data[..],
+                UTF8(|line_no, line| {
+                    hits.push((line_no, line.trim_end_matches('\n').to_string()));
+                    Ok(true)
+                }),
+            )
+            .unwrap();
+
+        // Only lines that do NOT match `foo` are emitted: `bar` and `qux`.
+        assert_eq!(
+            hits,
+            vec![(2, "bar".to_string()), (4, "qux".to_string())]
+        );
     }
 }

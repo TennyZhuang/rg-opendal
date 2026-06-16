@@ -7,6 +7,7 @@
 //! FF5: `-c/--count` and `-l/--files-with-matches`.
 //! FF6: `-w/--word-regexp` and `-x/--line-regexp`.
 //! FF7: `--max-count=N` per-file match cap.
+//! FF8: `-v/--invert-match` print non-matching lines.
 
 use clap::Parser;
 use termcolor::ColorChoice;
@@ -104,6 +105,10 @@ pub struct Cli {
     /// Mutually exclusive with `--files-with-matches` (which only needs one match).
     #[arg(short = 'm', long = "max-count", value_name = "NUM", conflicts_with = "files_with_matches")]
     pub max_count: Option<usize>,
+
+    /// Invert matching: print non-matching lines instead of matching ones.
+    #[arg(short = 'v', long = "invert-match")]
+    pub invert_match: bool,
 }
 
 /// `--color` argument values, mapped to `termcolor::ColorChoice`.
