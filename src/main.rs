@@ -23,13 +23,39 @@ fn build_s3_operator(bucket: &str) -> Result<Operator> {
     Ok(Operator::new(builder)?.finish())
 }
 
-fn build_matcher(pattern: &str, ignore_case: bool) -> Result<RegexMatcher> {
-    if ignore_case {
-        RegexMatcher::new(&format!("(?i){}", pattern))
-            .with_context(|| format!("invalid regex (case-insensitive): {pattern}"))
+/// Apply optional `-w`/`-x` regex anchoring around the user pattern, then
+/// compile it. Mirrors native rg's behavior:
+/// - `-w` wraps as `(?:<pattern>)` between `\b` boundaries
+/// - `-x` wraps as `^(?:<pattern>)$`
+/// - `-i` adds the `(?i)` flag at the very start so it applies to the whole
+///   anchored expression.
+///
+/// `-w` and `-x` are mutually exclusive at the CLI layer (clap conflict),
+/// so this only ever applies one of them.
+fn anchor_pattern(pattern: &str, word: bool, line: bool) -> String {
+    if line {
+        format!("^(?:{pattern})$")
+    } else if word {
+        format!(r"\b(?:{pattern})\b")
     } else {
-        RegexMatcher::new(pattern).with_context(|| format!("invalid regex: {pattern}"))
+        pattern.to_string()
     }
+}
+
+fn build_matcher(
+    pattern: &str,
+    ignore_case: bool,
+    word: bool,
+    line: bool,
+) -> Result<RegexMatcher> {
+    let anchored = anchor_pattern(pattern, word, line);
+    let final_expr = if ignore_case {
+        format!("(?i){anchored}")
+    } else {
+        anchored
+    };
+    RegexMatcher::new(&final_expr)
+        .with_context(|| format!("invalid regex: {pattern}"))
 }
 
 /// Resolve context-line counts. Explicit `-A`/`-B` override `-C`; `-C`
@@ -102,7 +128,12 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     let target = Target::parse(&cli.target)?;
-    let matcher = build_matcher(&cli.pattern, cli.ignore_case)?;
+    let matcher = build_matcher(
+        &cli.pattern,
+        cli.ignore_case,
+        cli.word_regexp,
+        cli.line_regexp,
+    )?;
     let (after_context, before_context) = context_counts(&cli);
     let mut searcher = SearcherBuilder::new()
         .line_number(true)
@@ -342,5 +373,80 @@ mod tests {
             "s3://bucket/prefix",
         ])
         .is_err());
+    }
+
+    #[test]
+    fn anchor_pattern_no_anchors_returns_unchanged() {
+        assert_eq!(anchor_pattern("foo", false, false), "foo");
+    }
+
+    #[test]
+    fn anchor_pattern_word_wraps_with_word_boundaries() {
+        assert_eq!(anchor_pattern("foo", true, false), r"\b(?:foo)\b");
+    }
+
+    #[test]
+    fn anchor_pattern_line_wraps_with_line_anchors() {
+        assert_eq!(anchor_pattern("foo", false, true), "^(?:foo)$");
+    }
+
+    #[test]
+    fn anchor_pattern_groups_alternations() {
+        // Without the (?:...) group, `\bfoo|bar\b` would be `(\bfoo) | (bar\b)`.
+        assert_eq!(anchor_pattern("foo|bar", true, false), r"\b(?:foo|bar)\b");
+        assert_eq!(anchor_pattern("foo|bar", false, true), "^(?:foo|bar)$");
+    }
+
+    #[test]
+    fn word_regexp_flag_parses() {
+        let cli =
+            Cli::parse_from(["rg-opendal", "-w", "pattern", "s3://bucket/prefix"]);
+        assert!(cli.word_regexp);
+        assert!(!cli.line_regexp);
+    }
+
+    #[test]
+    fn line_regexp_flag_parses() {
+        let cli =
+            Cli::parse_from(["rg-opendal", "-x", "pattern", "s3://bucket/prefix"]);
+        assert!(cli.line_regexp);
+        assert!(!cli.word_regexp);
+    }
+
+    #[test]
+    fn word_regexp_conflicts_with_line_regexp() {
+        assert!(Cli::try_parse_from([
+            "rg-opendal",
+            "-w",
+            "-x",
+            "pattern",
+            "s3://bucket/prefix",
+        ])
+        .is_err());
+    }
+
+    #[test]
+    fn build_matcher_word_regexp_matches_whole_word() {
+        use grep_matcher::Matcher;
+        let m = build_matcher("foo", false, true, false).unwrap();
+        assert!(m.is_match(b"a foo b").unwrap());
+        assert!(!m.is_match(b"foobar").unwrap());
+    }
+
+    #[test]
+    fn build_matcher_line_regexp_matches_full_line() {
+        use grep_matcher::Matcher;
+        let m = build_matcher("foo", false, false, true).unwrap();
+        assert!(m.is_match(b"foo").unwrap());
+        assert!(!m.is_match(b"foobar").unwrap());
+        assert!(!m.is_match(b"a foo").unwrap());
+    }
+
+    #[test]
+    fn build_matcher_ignore_case_composes_with_word_regexp() {
+        use grep_matcher::Matcher;
+        let m = build_matcher("foo", true, true, false).unwrap();
+        assert!(m.is_match(b"a FOO b").unwrap());
+        assert!(!m.is_match(b"FOOBAR").unwrap());
     }
 }

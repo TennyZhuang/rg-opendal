@@ -5,6 +5,7 @@
 //! FF3: `--json`, `--stats`, `-A/-B/-C` context lines.
 //! FF4: `--color` output coloring.
 //! FF5: `-c/--count` and `-l/--files-with-matches`.
+//! FF6: `-w/--word-regexp` and `-x/--line-regexp`.
 
 use clap::Parser;
 use termcolor::ColorChoice;
@@ -84,6 +85,18 @@ pub struct Cli {
     /// Mutually exclusive with `--json` and `--count`.
     #[arg(short = 'l', long = "files-with-matches", conflicts_with = "json", conflicts_with = "count")]
     pub files_with_matches: bool,
+
+    /// Only match the pattern at word boundaries (regex `\b…\b`).
+    ///
+    /// Mutually exclusive with `--line-regexp`.
+    #[arg(short = 'w', long = "word-regexp", conflicts_with = "line_regexp")]
+    pub word_regexp: bool,
+
+    /// Only match the pattern when it spans an entire line (regex `^…$`).
+    ///
+    /// Mutually exclusive with `--word-regexp`.
+    #[arg(short = 'x', long = "line-regexp", conflicts_with = "word_regexp")]
+    pub line_regexp: bool,
 }
 
 /// `--color` argument values, mapped to `termcolor::ColorChoice`.
