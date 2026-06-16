@@ -67,6 +67,20 @@ fn context_counts(cli: &Cli) -> (usize, usize) {
     (after, before)
 }
 
+/// Decide whether to show the file-path prefix on each match line. Mirrors
+/// native rg: explicit `-H` forces on, explicit `-I` forces off, otherwise
+/// auto-detect based on whether more than one file is being searched.
+/// `with_filename` and `no_filename` are mutually exclusive at the clap layer.
+fn resolve_show_path(file_count: usize, with_filename: bool, no_filename: bool) -> bool {
+    if no_filename {
+        false
+    } else if with_filename {
+        true
+    } else {
+        file_count > 1
+    }
+}
+
 /// Print a ripgrep-compatible `--stats` summary to stderr.
 fn print_stats(stats: &Stats) {
     eprintln!("{} matches", stats.matches());
@@ -143,33 +157,6 @@ fn main() -> Result<()> {
         .invert_match(cli.invert_match)
         .build();
 
-    let mut printer = if cli.json {
-        // JSON output is never colored; using a color-capable writer keeps the
-        // Printer type identical in the other branches without affecting JSON.
-        Printer::json(StandardStream::stdout(ColorChoice::Never))
-    } else if cli.count {
-        Printer::summary(
-            StandardStream::stdout(cli.color.to_color_choice()),
-            SummaryKind::Count,
-            cli.stats,
-        )
-    } else if cli.files_with_matches {
-        Printer::summary(
-            StandardStream::stdout(cli.color.to_color_choice()),
-            SummaryKind::PathWithMatch,
-            cli.stats,
-        )
-    } else {
-        Printer::standard(
-            StandardStream::stdout(cli.color.to_color_choice()),
-            cli.stats,
-            cli.column,
-            cli.heading,
-            cli.no_filename,
-            cli.null,
-        )
-    };
-
     // Drive async OpenDAL operations from a side runtime; main is NOT a
     // worker of that runtime, so calling `handle.block_on` from main is safe
     // and is what makes `StreamingBufReader::read` (which also calls
@@ -186,6 +173,42 @@ fn main() -> Result<()> {
             let filter = walker::WalkFilter::new(&cli.globs, &cli.types, &cli.types_not)?;
             let paths = handle
                 .block_on(async { walker::list_objects(&op, prefix, Some(&filter)).await })?;
+
+            // rg's auto-with-filename: show path prefix iff > 1 file matches,
+            // unless the user forces it on (`-H`) or off (`-I`). When `--heading`
+            // is set the prefix is always omitted on match lines (path goes on
+            // its own line as the heading).
+            let show_path = resolve_show_path(
+                paths.len(),
+                cli.with_filename,
+                cli.no_filename,
+            );
+
+            // Construct the printer now that we know how many files we'll search.
+            let mut printer = if cli.json {
+                Printer::json(StandardStream::stdout(ColorChoice::Never))
+            } else if cli.count {
+                Printer::summary(
+                    StandardStream::stdout(cli.color.to_color_choice()),
+                    SummaryKind::Count,
+                    cli.stats,
+                )
+            } else if cli.files_with_matches {
+                Printer::summary(
+                    StandardStream::stdout(cli.color.to_color_choice()),
+                    SummaryKind::PathWithMatch,
+                    cli.stats,
+                )
+            } else {
+                Printer::standard(
+                    StandardStream::stdout(cli.color.to_color_choice()),
+                    cli.stats,
+                    cli.column,
+                    cli.heading,
+                    !show_path,
+                    cli.null,
+                )
+            };
 
             for path in paths {
                 let display_path = format!("s3://{bucket}/{path}");
@@ -634,5 +657,59 @@ mod tests {
             "s3://bucket/prefix",
         ]);
         assert!(cli.null);
+    }
+
+    #[test]
+    fn resolve_show_path_auto_single_file_hides_prefix() {
+        assert!(!resolve_show_path(1, false, false));
+    }
+
+    #[test]
+    fn resolve_show_path_auto_multi_file_shows_prefix() {
+        assert!(resolve_show_path(2, false, false));
+        assert!(resolve_show_path(10, false, false));
+    }
+
+    #[test]
+    fn resolve_show_path_with_filename_forces_on() {
+        assert!(resolve_show_path(1, true, false));
+        assert!(resolve_show_path(0, true, false));
+    }
+
+    #[test]
+    fn resolve_show_path_no_filename_forces_off() {
+        assert!(!resolve_show_path(2, false, true));
+        assert!(!resolve_show_path(10, false, true));
+    }
+
+    #[test]
+    fn with_filename_flag_parses() {
+        let cli =
+            Cli::parse_from(["rg-opendal", "-H", "pattern", "s3://bucket/prefix"]);
+        assert!(cli.with_filename);
+        assert!(!cli.no_filename);
+    }
+
+    #[test]
+    fn with_filename_long_form_parses() {
+        let cli = Cli::parse_from([
+            "rg-opendal",
+            "--with-filename",
+            "pattern",
+            "s3://bucket/prefix",
+        ]);
+        assert!(cli.with_filename);
+    }
+
+    #[test]
+    fn with_filename_conflicts_with_no_filename() {
+        assert!(Cli::try_parse_from([
+            "rg-opendal",
+            "-H",
+            "-I",
+            "pattern",
+            "s3://bucket/prefix",
+        ])
+        .is_err());
     }
 }
