@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use grep_printer::{Stats, SummaryKind};
 use grep_regex::RegexMatcher;
+use grep_matcher::LineTerminator;
 use grep_searcher::{Searcher, SearcherBuilder};
 use opendal::{services::S3, Operator};
 use rg_opendal::cli::{Cli, Target};
@@ -155,6 +156,11 @@ fn main() -> Result<()> {
         .before_context(before_context)
         .max_matches(cli.max_count.map(|n| n as u64))
         .invert_match(cli.invert_match)
+        .line_terminator(if cli.null_data {
+            LineTerminator::byte(b'\0')
+        } else {
+            LineTerminator::default()
+        })
         .build();
 
     // Drive async OpenDAL operations from a side runtime; main is NOT a
@@ -711,5 +717,65 @@ mod tests {
             "s3://bucket/prefix",
         ])
         .is_err());
+    }
+
+    #[test]
+    fn null_data_defaults_to_false() {
+        let cli = Cli::parse_from(["rg-opendal", "pattern", "s3://bucket/prefix"]);
+        assert!(!cli.null_data);
+    }
+
+    #[test]
+    fn null_data_flag_parses() {
+        let cli = Cli::parse_from([
+            "rg-opendal",
+            "-z",
+            "pattern",
+            "s3://bucket/prefix",
+        ]);
+        assert!(cli.null_data);
+    }
+
+    #[test]
+    fn null_data_long_form_parses() {
+        let cli = Cli::parse_from([
+            "rg-opendal",
+            "--null-data",
+            "pattern",
+            "s3://bucket/prefix",
+        ]);
+        assert!(cli.null_data);
+    }
+
+    #[test]
+    fn searcher_null_data_uses_null_line_terminator() {
+        use grep_searcher::sinks::UTF8;
+
+        let matcher = build_matcher("foo", false, false, false).unwrap();
+        let mut searcher = SearcherBuilder::new()
+            .line_number(true)
+            .line_terminator(LineTerminator::byte(b'\0'))
+            .build();
+
+        let data = b"foo\0bar\0foo baz\0qux\0";
+        let mut hits: Vec<(u64, String)> = Vec::new();
+        searcher
+            .search_reader(
+                &matcher,
+                &data[..],
+                UTF8(|line_no, line| {
+                    hits.push((line_no, line.trim_end_matches('\0').to_string()));
+                    Ok(true)
+                }),
+            )
+            .unwrap();
+
+        assert_eq!(
+            hits,
+            vec![
+                (1, "foo".to_string()),
+                (3, "foo baz".to_string()),
+            ]
+        );
     }
 }
