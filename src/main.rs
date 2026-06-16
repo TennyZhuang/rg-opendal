@@ -1,15 +1,12 @@
-mod cli;
-mod opendal_io;
-mod printer;
-mod walker;
-
 use anyhow::{Context, Result};
 use clap::Parser;
-use cli::{Cli, Target};
 use grep_printer::Stats;
 use grep_regex::RegexMatcher;
 use grep_searcher::{Searcher, SearcherBuilder};
 use opendal::{services::S3, Operator};
+use rg_opendal::cli::{Cli, Target};
+use rg_opendal::printer::Printer;
+use rg_opendal::{opendal_io, walker};
 use std::io::Write;
 use std::path::Path;
 use termcolor::NoColor;
@@ -114,9 +111,9 @@ fn main() -> Result<()> {
         .build();
 
     let mut printer = if cli.json {
-        printer::Printer::json(NoColor::new(std::io::stdout()))
+        Printer::json(NoColor::new(std::io::stdout()))
     } else {
-        printer::Printer::standard(NoColor::new(std::io::stdout()), cli.stats)
+        Printer::standard(NoColor::new(std::io::stdout()), cli.stats)
     };
 
     // Drive async OpenDAL operations from a side runtime; main is NOT a

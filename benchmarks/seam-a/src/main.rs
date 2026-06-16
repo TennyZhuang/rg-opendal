@@ -16,7 +16,8 @@ use opendal::{Operator, services::S3};
 use std::time::Instant;
 use tokio::runtime::Handle;
 
-use reader::{BufReader, StreamingBufReader};
+use reader::BufReader;
+use rg_opendal::opendal_io::StreamingBufReader;
 
 // ── Sink that counts but discards output ──────────────────────────
 struct CountSink { count: u64 }
@@ -110,7 +111,7 @@ fn run_seam_a(op: &Operator, path: &str, file_size: u64, handle: &Handle, iter: 
         file: path.to_string(),
         size_bytes: file_size,
         elapsed_us: elapsed.as_micros(),
-        block_on_calls: bridge.block_on_count(),
+        block_on_calls: bridge.block_on_calls,
         iteration: iter,
         verdict: "PASS_bench".into(),
         attribution: "tooling_dependent".into(),
