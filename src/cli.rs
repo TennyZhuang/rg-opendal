@@ -56,6 +56,14 @@ pub struct Cli {
     /// Equivalent to `-B NUM -A NUM`.
     #[arg(short = 'C', long = "context", value_name = "NUM")]
     pub context: Option<usize>,
+
+    /// Read each object via OpenDAL's streaming reader (Seam A) instead of
+    /// loading the full body into memory (Seam C, default). Trades wall-time
+    /// for peak memory: Seam A holds at most one chunk (~200 KB on S3) at a
+    /// time but pays one tokio block_on per chunk transition — matrix v2.7
+    /// row #3 measured 1.8–4.0× the wall time of Seam C on local minio.
+    #[arg(long = "streaming")]
+    pub streaming: bool,
 }
 
 pub enum Target<'a> {
