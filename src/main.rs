@@ -3,7 +3,7 @@ use clap::Parser;
 use grep_printer::{Stats, SummaryKind};
 use grep_regex::RegexMatcher;
 use grep_matcher::LineTerminator;
-use grep_searcher::{Searcher, SearcherBuilder};
+use grep_searcher::{BinaryDetection, Searcher, SearcherBuilder};
 use opendal::{services::S3, Operator};
 use rg_opendal::cli::{Cli, Target};
 use rg_opendal::printer::Printer;
@@ -160,6 +160,11 @@ fn main() -> Result<()> {
             LineTerminator::byte(b'\0')
         } else {
             LineTerminator::default()
+        })
+        .binary_detection(if cli.text {
+            BinaryDetection::none()
+        } else {
+            BinaryDetection::default()
         })
         .build();
 
@@ -777,5 +782,62 @@ mod tests {
                 (3, "foo baz".to_string()),
             ]
         );
+    }
+
+    #[test]
+    fn text_defaults_to_false() {
+        let cli = Cli::parse_from(["rg-opendal", "pattern", "s3://bucket/prefix"]);
+        assert!(!cli.text);
+    }
+
+    #[test]
+    fn text_flag_parses() {
+        let cli = Cli::parse_from([
+            "rg-opendal",
+            "-a",
+            "pattern",
+            "s3://bucket/prefix",
+        ]);
+        assert!(cli.text);
+    }
+
+    #[test]
+    fn text_long_form_parses() {
+        let cli = Cli::parse_from([
+            "rg-opendal",
+            "--text",
+            "pattern",
+            "s3://bucket/prefix",
+        ]);
+        assert!(cli.text);
+    }
+
+    #[test]
+    fn searcher_text_mode_searches_binary_data() {
+        use grep_searcher::sinks::UTF8;
+
+        let matcher = build_matcher("foo", false, false, false).unwrap();
+        // Default binary detection would likely treat a buffer starting with a
+        // null byte as binary and skip it; --text forces the search.
+        let mut searcher = SearcherBuilder::new()
+            .line_number(true)
+            .binary_detection(BinaryDetection::none())
+            .build();
+
+        let data = b"\x00foo\x00bar\n";
+        let mut hits: Vec<(u64, String)> = Vec::new();
+        searcher
+            .search_reader(
+                &matcher,
+                &data[..],
+                UTF8(|line_no, line| {
+                    hits.push((line_no, line.trim_end_matches('\n').to_string()));
+                    Ok(true)
+                }),
+            )
+            .unwrap();
+
+        assert!(!hits.is_empty(), "expected --text to search binary data");
+        assert!(hits.iter().any(|(_, l)| l.contains("foo")));
     }
 }
