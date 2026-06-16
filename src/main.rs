@@ -59,7 +59,7 @@ fn print_stats(stats: &Stats) {
     eprintln!("{} files searched", stats.searches());
     eprintln!("{} bytes printed", stats.bytes_printed());
     eprintln!("{} bytes searched", stats.bytes_searched());
-    eprintln!("{:.6} seconds", stats.elapsed().as_secs_f64());
+    eprintln!("{:.6} seconds spent searching", stats.elapsed().as_secs_f64());
 }
 
 #[tokio::main]
@@ -112,7 +112,7 @@ async fn main() -> Result<()> {
                 }
                 if cli.stats {
                     if let Some(stats) = sink.stats() {
-                        aggregate_stats += stats.clone();
+                        aggregate_stats += stats;
                     }
                 }
             }
