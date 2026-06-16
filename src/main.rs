@@ -163,7 +163,7 @@ fn main() -> Result<()> {
             StandardStream::stdout(cli.color.to_color_choice()),
             cli.stats,
             cli.column,
-            cli.no_heading,
+            !cli.no_heading,
         )
     };
 
