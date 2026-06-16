@@ -1,16 +1,18 @@
 mod cli;
 mod opendal_io;
+mod printer;
 mod walker;
 
 use anyhow::{Context, Result};
 use clap::Parser;
 use cli::{Cli, Target};
-use grep_printer::{Standard, StandardBuilder};
+use grep_printer::Stats;
 use grep_regex::RegexMatcher;
 use grep_searcher::SearcherBuilder;
-use opendal::{Operator, services::S3};
+use opendal::{services::S3, Operator};
 use std::io::Write;
-use termcolor::{ColorChoice, StandardStream};
+use std::path::Path;
+use termcolor::NoColor;
 
 fn build_s3_operator(bucket: &str) -> Result<Operator> {
     let mut builder = S3::default().bucket(bucket);
@@ -32,14 +34,6 @@ fn build_matcher(pattern: &str, ignore_case: bool) -> Result<RegexMatcher> {
     }
 }
 
-fn build_printer(stream: StandardStream) -> Standard<StandardStream> {
-    StandardBuilder::new()
-        .heading(false)
-        .column(false)
-        .stats(false)
-        .build(stream)
-}
-
 /// Construct a `Read` over `data`. Today this is always the full-buffer
 /// `BufReader`; once Pi's `StreamingBufReader` is promoted into
 /// `opendal_io`, this is the call site that swaps to it (with a `Handle`
@@ -48,13 +42,24 @@ fn make_reader(data: Vec<u8>) -> opendal_io::BufReader {
     opendal_io::BufReader::new(data)
 }
 
-/// First-deliverable run statistics. Wired to the printer once `--stats`
-/// (FF3) lands; counted now so the surface doesn't churn at that point.
-#[derive(Default)]
-#[allow(dead_code)]
-struct RunStats {
-    total_matches: u64,
-    total_files: u64,
+/// Resolve context-line counts. Explicit `-A`/`-B` override `-C`; `-C`
+/// supplies the default for both.
+fn context_counts(cli: &Cli) -> (usize, usize) {
+    let default = cli.context.unwrap_or(0);
+    let after = cli.after_context.unwrap_or(default);
+    let before = cli.before_context.unwrap_or(default);
+    (after, before)
+}
+
+/// Print a ripgrep-compatible `--stats` summary to stderr.
+fn print_stats(stats: &Stats) {
+    eprintln!("{} matches", stats.matches());
+    eprintln!("{} matched lines", stats.matched_lines());
+    eprintln!("{} files contained matches", stats.searches_with_match());
+    eprintln!("{} files searched", stats.searches());
+    eprintln!("{} bytes printed", stats.bytes_printed());
+    eprintln!("{} bytes searched", stats.bytes_searched());
+    eprintln!("{:.6} seconds", stats.elapsed().as_secs_f64());
 }
 
 #[tokio::main]
@@ -63,15 +68,21 @@ async fn main() -> Result<()> {
 
     let target = Target::parse(&cli.target)?;
     let matcher = build_matcher(&cli.pattern, cli.ignore_case)?;
+    let (after_context, before_context) = context_counts(&cli);
     let mut searcher = SearcherBuilder::new()
         .line_number(true)
+        .after_context(after_context)
+        .before_context(before_context)
         .build();
 
-    let stdout = StandardStream::stdout(ColorChoice::Never);
-    let mut printer = build_printer(stdout);
+    let mut printer = if cli.json {
+        printer::Printer::json(NoColor::new(std::io::stdout()))
+    } else {
+        printer::Printer::standard(NoColor::new(std::io::stdout()), cli.stats)
+    };
 
     let mut any_match = false;
-    let mut stats = RunStats::default();
+    let mut aggregate_stats = Stats::new();
 
     match target {
         Target::S3 { bucket, prefix } => {
@@ -88,18 +99,21 @@ async fn main() -> Result<()> {
                     }
                 };
 
-                stats.total_files += 1;
                 let display_path = format!("s3://{bucket}/{path}");
                 let mut reader = make_reader(data);
 
-                let mut sink = printer.sink_with_path(&matcher, &display_path);
+                let mut sink = printer.sink_with_path(&matcher, Path::new(&display_path));
                 searcher
                     .search_reader(&matcher, &mut reader, &mut sink)
                     .with_context(|| format!("search failed for {display_path}"))?;
 
                 if sink.has_match() {
                     any_match = true;
-                    stats.total_matches += sink.match_count();
+                }
+                if cli.stats {
+                    if let Some(stats) = sink.stats() {
+                        aggregate_stats += stats.clone();
+                    }
                 }
             }
         }
@@ -107,8 +121,49 @@ async fn main() -> Result<()> {
 
     let _ = std::io::stderr().flush();
 
+    if cli.stats {
+        print_stats(&aggregate_stats);
+    }
+
     if !any_match {
         std::process::exit(1);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn context_counts_use_explicit_overrides() {
+        let cli = Cli::parse_from([
+            "rg-opendal",
+            "-A",
+            "3",
+            "-C",
+            "2",
+            "pattern",
+            "s3://bucket/prefix",
+        ]);
+        assert_eq!(context_counts(&cli), (3, 2));
+    }
+
+    #[test]
+    fn context_counts_use_context_for_both() {
+        let cli = Cli::parse_from([
+            "rg-opendal",
+            "-C",
+            "5",
+            "pattern",
+            "s3://bucket/prefix",
+        ]);
+        assert_eq!(context_counts(&cli), (5, 5));
+    }
+
+    #[test]
+    fn context_counts_default_to_zero() {
+        let cli = Cli::parse_from(["rg-opendal", "pattern", "s3://bucket/prefix"]);
+        assert_eq!(context_counts(&cli), (0, 0));
+    }
 }

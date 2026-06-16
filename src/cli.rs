@@ -2,7 +2,7 @@
 //!
 //! FF1: pattern + s3:// URL + `-i`.
 //! FF2: `--glob/-g`, `--type/-t`, `--type-not/-T` over object keys.
-//! FF3 (deferred): `--json/--stats/-A/-B/-C`.
+//! FF3: `--json`, `--stats`, `-A/-B/-C` context lines.
 
 use clap::Parser;
 
@@ -34,6 +34,28 @@ pub struct Cli {
     /// Exclude files matching the given type alias. Repeatable.
     #[arg(short = 'T', long = "type-not")]
     pub types_not: Vec<String>,
+
+    /// Emit results as JSON lines (one JSON object per line).
+    /// Mutually exclusive with the default human-readable output.
+    #[arg(long = "json")]
+    pub json: bool,
+
+    /// Print statistics summary to stderr after searching.
+    #[arg(long = "stats")]
+    pub stats: bool,
+
+    /// Show NUM lines of context after each match.
+    #[arg(short = 'A', long = "after-context", value_name = "NUM")]
+    pub after_context: Option<usize>,
+
+    /// Show NUM lines of context before each match.
+    #[arg(short = 'B', long = "before-context", value_name = "NUM")]
+    pub before_context: Option<usize>,
+
+    /// Show NUM lines of context before and after each match.
+    /// Equivalent to `-B NUM -A NUM`.
+    #[arg(short = 'C', long = "context", value_name = "NUM")]
+    pub context: Option<usize>,
 }
 
 pub enum Target<'a> {
