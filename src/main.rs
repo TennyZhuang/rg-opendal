@@ -48,15 +48,17 @@ fn build_matcher(
     ignore_case: bool,
     word: bool,
     line: bool,
+    fixed_strings: bool,
 ) -> Result<RegexMatcher> {
-    let anchored = anchor_pattern(pattern, word, line);
+    let pattern = if fixed_strings { regex::escape(pattern) } else { pattern.to_string() };
+    let anchored = anchor_pattern(&pattern, word, line);
     let final_expr = if ignore_case {
         format!("(?i){anchored}")
     } else {
         anchored
     };
     RegexMatcher::new(&final_expr)
-        .with_context(|| format!("invalid regex: {pattern}"))
+        .with_context(|| format!("invalid regex: {final_expr}"))
 }
 
 /// Resolve context-line counts. Explicit `-A`/`-B` override `-C`; `-C`
@@ -148,6 +150,7 @@ fn main() -> Result<()> {
         cli.ignore_case,
         cli.word_regexp,
         cli.line_regexp,
+        cli.fixed_strings,
     )?;
     let (after_context, before_context) = context_counts(&cli);
     let mut searcher = SearcherBuilder::new()
@@ -499,7 +502,7 @@ mod tests {
     #[test]
     fn build_matcher_word_regexp_matches_whole_word() {
         use grep_matcher::Matcher;
-        let m = build_matcher("foo", false, true, false).unwrap();
+        let m = build_matcher("foo", false, true, false, false).unwrap();
         assert!(m.is_match(b"a foo b").unwrap());
         assert!(!m.is_match(b"foobar").unwrap());
     }
@@ -507,7 +510,7 @@ mod tests {
     #[test]
     fn build_matcher_line_regexp_matches_full_line() {
         use grep_matcher::Matcher;
-        let m = build_matcher("foo", false, false, true).unwrap();
+        let m = build_matcher("foo", false, false, true, false).unwrap();
         assert!(m.is_match(b"foo").unwrap());
         assert!(!m.is_match(b"foobar").unwrap());
         assert!(!m.is_match(b"a foo").unwrap());
@@ -516,9 +519,47 @@ mod tests {
     #[test]
     fn build_matcher_ignore_case_composes_with_word_regexp() {
         use grep_matcher::Matcher;
-        let m = build_matcher("foo", true, true, false).unwrap();
+        let m = build_matcher("foo", true, true, false, false).unwrap();
         assert!(m.is_match(b"a FOO b").unwrap());
         assert!(!m.is_match(b"FOOBAR").unwrap());
+    }
+
+    #[test]
+    fn build_matcher_fixed_strings_escapes_regex_metacharacters() {
+        use grep_matcher::Matcher;
+        let m = build_matcher("a.b", false, false, false, true).unwrap();
+        assert!(m.is_match(b"a.b literal").unwrap());
+        assert!(!m.is_match(b"axb literal").unwrap());
+    }
+
+    #[test]
+    fn build_matcher_fixed_strings_composes_with_word_regexp() {
+        use grep_matcher::Matcher;
+        let m = build_matcher("a.b", false, true, false, true).unwrap();
+        assert!(m.is_match(b"a.b").unwrap());
+        assert!(!m.is_match(b"xa.bx").unwrap());
+    }
+
+    #[test]
+    fn build_matcher_fixed_strings_composes_with_line_regexp() {
+        use grep_matcher::Matcher;
+        let m = build_matcher("a.b", false, false, true, true).unwrap();
+        assert!(m.is_match(b"a.b").unwrap());
+        assert!(!m.is_match(b"xa.b").unwrap());
+    }
+
+    #[test]
+    fn fixed_strings_flag_parses() {
+        let cli = Cli::parse_from(["rg-opendal", "-F", "pattern", "s3://bucket/prefix"]);
+        assert!(cli.fixed_strings);
+        let cli = Cli::parse_from(["rg-opendal", "--fixed-strings", "pattern", "s3://bucket/prefix"]);
+        assert!(cli.fixed_strings);
+    }
+
+    #[test]
+    fn fixed_strings_defaults_to_false() {
+        let cli = Cli::parse_from(["rg-opendal", "pattern", "s3://bucket/prefix"]);
+        assert!(!cli.fixed_strings);
     }
 
     #[test]
@@ -549,7 +590,7 @@ mod tests {
     fn searcher_invert_match_emits_non_matching_lines() {
         use grep_searcher::sinks::UTF8;
 
-        let matcher = build_matcher("foo", false, false, false).unwrap();
+        let matcher = build_matcher("foo", false, false, false, false).unwrap();
         let mut searcher = SearcherBuilder::new()
             .line_number(true)
             .invert_match(true)
@@ -756,7 +797,7 @@ mod tests {
     fn searcher_null_data_uses_null_line_terminator() {
         use grep_searcher::sinks::UTF8;
 
-        let matcher = build_matcher("foo", false, false, false).unwrap();
+        let matcher = build_matcher("foo", false, false, false, false).unwrap();
         let mut searcher = SearcherBuilder::new()
             .line_number(true)
             .line_terminator(LineTerminator::byte(b'\0'))
@@ -816,7 +857,7 @@ mod tests {
     fn searcher_text_mode_searches_binary_data() {
         use grep_searcher::sinks::UTF8;
 
-        let matcher = build_matcher("foo", false, false, false).unwrap();
+        let matcher = build_matcher("foo", false, false, false, false).unwrap();
         // Default binary detection would likely treat a buffer starting with a
         // null byte as binary and skip it; --text forces the search.
         let mut searcher = SearcherBuilder::new()
