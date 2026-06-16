@@ -9,7 +9,8 @@
 //! FF7: `--max-count=N` per-file match cap.
 //! FF8: `-v/--invert-match` print non-matching lines.
 //! FF9: `-N/--no-line-number`, `--column`, `--heading` printer flags.
-//! FF10: `-I/--no-filename` printer flag.
+//! FF10: `-I/--no-filename` and `-H/--with-filename` path-prefix control
+//!        with auto-detection (single file → hide, multi file → show) per rg.
 //! FF11: `-0/--null` path terminator flag.
 
 use clap::Parser;
@@ -128,8 +129,16 @@ pub struct Cli {
     pub heading: bool,
 
     /// Suppress the file path prefix on each matching line.
-    #[arg(short = 'I', long = "no-filename")]
+    /// Mutually exclusive with `--with-filename`.
+    #[arg(short = 'I', long = "no-filename", conflicts_with = "with_filename")]
     pub no_filename: bool,
+
+    /// Always show the file path prefix on each matching line, even when a
+    /// single file is searched. Mutually exclusive with `--no-filename`.
+    /// Default: path is shown when multiple files match, hidden when exactly
+    /// one file matches — same auto-detection as native rg.
+    #[arg(short = 'H', long = "with-filename", conflicts_with = "no_filename")]
+    pub with_filename: bool,
 
     /// Add a null byte after the file path (standard rg `-0/--null`).
     #[arg(short = '0', long = "null")]
