@@ -6,6 +6,7 @@
 //! FF4: `--color` output coloring.
 //! FF5: `-c/--count` and `-l/--files-with-matches`.
 //! FF6: `-w/--word-regexp` and `-x/--line-regexp`.
+//! FF7: `--max-count=N` per-file match cap.
 
 use clap::Parser;
 use termcolor::ColorChoice;
@@ -97,6 +98,12 @@ pub struct Cli {
     /// Mutually exclusive with `--word-regexp`.
     #[arg(short = 'x', long = "line-regexp", conflicts_with = "word_regexp")]
     pub line_regexp: bool,
+
+    /// Stop searching each file after NUM matches.
+    ///
+    /// Mutually exclusive with `--files-with-matches` (which only needs one match).
+    #[arg(short = 'm', long = "max-count", value_name = "NUM", conflicts_with = "files_with_matches")]
+    pub max_count: Option<usize>,
 }
 
 /// `--color` argument values, mapped to `termcolor::ColorChoice`.

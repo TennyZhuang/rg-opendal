@@ -139,6 +139,7 @@ fn main() -> Result<()> {
         .line_number(true)
         .after_context(after_context)
         .before_context(before_context)
+        .max_matches(cli.max_count.map(|n| n as u64))
         .build();
 
     let mut printer = if cli.json {
@@ -369,6 +370,37 @@ mod tests {
             "rg-opendal",
             "-c",
             "-l",
+            "pattern",
+            "s3://bucket/prefix",
+        ])
+        .is_err());
+    }
+
+    #[test]
+    fn max_count_defaults_to_none() {
+        let cli = Cli::parse_from(["rg-opendal", "pattern", "s3://bucket/prefix"]);
+        assert_eq!(cli.max_count, None);
+    }
+
+    #[test]
+    fn max_count_parses() {
+        let cli = Cli::parse_from([
+            "rg-opendal",
+            "--max-count",
+            "5",
+            "pattern",
+            "s3://bucket/prefix",
+        ]);
+        assert_eq!(cli.max_count, Some(5));
+    }
+
+    #[test]
+    fn max_count_conflicts_with_files_with_matches() {
+        assert!(Cli::try_parse_from([
+            "rg-opendal",
+            "-l",
+            "-m",
+            "3",
             "pattern",
             "s3://bucket/prefix",
         ])
