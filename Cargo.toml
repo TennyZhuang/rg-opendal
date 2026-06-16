@@ -1,0 +1,25 @@
+[package]
+name = "rg-opendal"
+version = "0.1.0"
+edition = "2021"
+description = "ripgrep over OpenDAL backends — independent crate consuming rg public crates"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/TennyZhuang/rg-opendal"
+readme = "README.md"
+
+[[bin]]
+name = "rg-opendal"
+path = "src/main.rs"
+
+[dependencies]
+grep-searcher = "0.1.16"
+grep-regex = "0.1.14"
+grep-matcher = "0.1.8"
+grep-printer = "0.3.1"
+opendal = { version = "0.53", features = ["services-s3", "services-fs"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+futures = "0.3"
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+termcolor = "1"
+ignore = "0.4"
