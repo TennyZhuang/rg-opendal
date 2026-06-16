@@ -135,6 +135,29 @@ fn main() -> Result<()> {
         cli.line_regexp,
     )?;
     let (after_context, before_context) = context_counts(&cli);
+
+    // Drive async OpenDAL operations from a side runtime; main is NOT a
+    // worker of that runtime, so calling `handle.block_on` from main is safe
+    // and is what makes `StreamingBufReader::read` (which also calls
+    // `block_on` on this same handle) deadlock-free under `--streaming`.
+    let rt = Runtime::new().context("creating tokio runtime")?;
+    let handle = rt.handle().clone();
+
+    // List paths before building the printer so we can match native rg's
+    // default: suppress the filename prefix when only one file matches.
+    let (bucket, prefix, paths, op) = match target {
+        Target::S3 { bucket, prefix } => {
+            let op = build_s3_operator(bucket)?;
+            let filter = walker::WalkFilter::new(&cli.globs, &cli.types, &cli.types_not)?;
+            let paths = handle
+                .block_on(async { walker::list_objects(&op, prefix, Some(&filter)).await })?;
+            (bucket, prefix, paths, op)
+        }
+    };
+
+    // Native rg omits the path prefix when searching a single file.
+    let effective_no_filename = cli.no_filename || paths.len() == 1;
+
     let mut searcher = SearcherBuilder::new()
         .line_number(!cli.no_line_number)
         .after_context(after_context)
@@ -165,53 +188,36 @@ fn main() -> Result<()> {
             cli.stats,
             cli.column,
             cli.heading,
-            cli.no_filename,
+            effective_no_filename,
             cli.null,
         )
     };
 
-    // Drive async OpenDAL operations from a side runtime; main is NOT a
-    // worker of that runtime, so calling `handle.block_on` from main is safe
-    // and is what makes `StreamingBufReader::read` (which also calls
-    // `block_on` on this same handle) deadlock-free under `--streaming`.
-    let rt = Runtime::new().context("creating tokio runtime")?;
-    let handle = rt.handle().clone();
-
     let mut any_match = false;
     let mut aggregate_stats = Stats::new();
 
-    match target {
-        Target::S3 { bucket, prefix } => {
-            let op = build_s3_operator(bucket)?;
-            let filter = walker::WalkFilter::new(&cli.globs, &cli.types, &cli.types_not)?;
-            let paths = handle
-                .block_on(async { walker::list_objects(&op, prefix, Some(&filter)).await })?;
-
-            for path in paths {
-                let display_path = format!("s3://{bucket}/{path}");
-                let mut sink =
-                    printer.sink_with_path(&matcher, Path::new(&display_path));
-                let res = search_one_object(
-                    &handle,
-                    &op,
-                    &path,
-                    cli.streaming,
-                    &mut searcher,
-                    &matcher,
-                    &mut sink,
-                );
-                if let Err(e) = res {
-                    eprintln!("rg-opendal: {e:#}");
-                    continue;
-                }
-                if sink.has_match() {
-                    any_match = true;
-                }
-                if cli.stats {
-                    if let Some(stats) = sink.stats() {
-                        aggregate_stats += stats;
-                    }
-                }
+    for path in paths {
+        let display_path = format!("s3://{bucket}/{path}");
+        let mut sink = printer.sink_with_path(&matcher, Path::new(&display_path));
+        let res = search_one_object(
+            &handle,
+            &op,
+            &path,
+            cli.streaming,
+            &mut searcher,
+            &matcher,
+            &mut sink,
+        );
+        if let Err(e) = res {
+            eprintln!("rg-opendal: {e:#}");
+            continue;
+        }
+        if sink.has_match() {
+            any_match = true;
+        }
+        if cli.stats {
+            if let Some(stats) = sink.stats() {
+                aggregate_stats += stats;
             }
         }
     }

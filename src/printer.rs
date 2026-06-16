@@ -346,4 +346,27 @@ mod tests {
         assert!(output.contains("foo"));
         assert!(output.contains('\x1b'), "expected ANSI escape codes in colored output: {output:?}");
     }
+
+    #[test]
+    fn standard_printer_suppresses_path_when_no_filename() {
+        let buf = Vec::new();
+        let mut printer = Printer::standard(NoColor::new(buf), false, false, false, true, false);
+        let matcher = RegexMatcher::new("foo").unwrap();
+        let mut searcher = SearcherBuilder::new().line_number(true).build();
+        let data = b"line two foo\n";
+
+        {
+            let mut sink = printer.sink_with_path(&matcher, Path::new("test.txt"));
+            searcher
+                .search_reader(&matcher, &data[..], &mut sink)
+                .unwrap();
+        }
+
+        let output = match printer {
+            Printer::Standard(p) => String::from_utf8(p.into_inner().into_inner()).unwrap(),
+            _ => panic!("expected standard printer"),
+        };
+        assert!(output.contains("foo"));
+        assert!(!output.contains("test.txt"), "expected no path prefix: {output:?}");
+    }
 }
