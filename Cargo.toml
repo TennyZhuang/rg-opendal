@@ -7,6 +7,10 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/TennyZhuang/rg-opendal"
 readme = "README.md"
 
+[lib]
+name = "rg_opendal"
+path = "src/lib.rs"
+
 [[bin]]
 name = "rg-opendal"
 path = "src/main.rs"

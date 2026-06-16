@@ -8,6 +8,7 @@ name = "seam-a-bench"
 path = "src/main.rs"
 
 [dependencies]
+rg-opendal = { path = "../.." }
 grep-searcher = "0.1.16"
 grep-regex = "0.1.14"
 grep-matcher = "0.1.8"
