@@ -7,7 +7,7 @@
 //! FF5: `-c/--count` and `-l/--files-with-matches`.
 //! FF6: `-w/--word-regexp` and `-x/--line-regexp`.
 //! FF7: `--max-count=N` per-file match cap.
-//! FF8: `-v/--invert-match`.
+//! FF8: `-v/--invert-match` print non-matching lines.
 //! FF9: `-N/--no-line-number`, `--column`, `--no-heading` printer flags.
 
 use clap::Parser;
@@ -106,6 +106,10 @@ pub struct Cli {
     /// Mutually exclusive with `--files-with-matches` (which only needs one match).
     #[arg(short = 'm', long = "max-count", value_name = "NUM", conflicts_with = "files_with_matches")]
     pub max_count: Option<usize>,
+
+    /// Invert matching: print non-matching lines instead of matching ones.
+    #[arg(short = 'v', long = "invert-match")]
+    pub invert_match: bool,
 
     /// Suppress line numbers in the standard printer output.
     #[arg(short = 'N', long = "no-line-number")]
