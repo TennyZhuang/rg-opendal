@@ -7,6 +7,8 @@
 //! FF5: `-c/--count` and `-l/--files-with-matches`.
 //! FF6: `-w/--word-regexp` and `-x/--line-regexp`.
 //! FF7: `--max-count=N` per-file match cap.
+//! FF8: `-v/--invert-match`.
+//! FF9: `-N/--no-line-number`, `--column`, `--no-heading` printer flags.
 
 use clap::Parser;
 use termcolor::ColorChoice;
@@ -104,6 +106,18 @@ pub struct Cli {
     /// Mutually exclusive with `--files-with-matches` (which only needs one match).
     #[arg(short = 'm', long = "max-count", value_name = "NUM", conflicts_with = "files_with_matches")]
     pub max_count: Option<usize>,
+
+    /// Suppress line numbers in the standard printer output.
+    #[arg(short = 'N', long = "no-line-number")]
+    pub no_line_number: bool,
+
+    /// Show the column number of the first match in each line.
+    #[arg(long = "column")]
+    pub column: bool,
+
+    /// Suppress file headings in the standard printer output.
+    #[arg(long = "no-heading")]
+    pub no_heading: bool,
 }
 
 /// `--color` argument values, mapped to `termcolor::ColorChoice`.

@@ -28,11 +28,12 @@ impl<W: WriteColor> Printer<W> {
     /// Build a standard (human-readable) printer.
     ///
     /// `stats` controls whether the printer gathers per-file statistics.
-    pub fn standard(wtr: W, stats: bool) -> Self {
+    /// `column` enables column-number output. `heading` enables file headings.
+    pub fn standard(wtr: W, stats: bool, column: bool, heading: bool) -> Self {
         Printer::Standard(
             StandardBuilder::new()
-                .heading(false)
-                .column(false)
+                .heading(heading)
+                .column(column)
                 .stats(stats)
                 .build(wtr),
         )
@@ -183,7 +184,7 @@ mod tests {
     #[test]
     fn standard_printer_tracks_matches_and_stats() {
         let buf = Vec::new();
-        let mut printer = Printer::standard(NoColor::new(buf), true);
+        let mut printer = Printer::standard(NoColor::new(buf), true, false, false);
         let matcher = RegexMatcher::new("foo").unwrap();
         let mut searcher = SearcherBuilder::new().line_number(true).build();
         let data = b"line one\nline two foo\nline three\n";
@@ -234,7 +235,7 @@ mod tests {
     #[test]
     fn context_lines_are_reported_by_standard_printer() {
         let buf = Vec::new();
-        let mut printer = Printer::standard(NoColor::new(buf), false);
+        let mut printer = Printer::standard(NoColor::new(buf), false, false, false);
         let matcher = RegexMatcher::new("foo").unwrap();
         let mut searcher = SearcherBuilder::new()
             .line_number(true)
@@ -313,7 +314,7 @@ mod tests {
     #[test]
     fn standard_printer_emits_color_with_ansi_writer() {
         let buf = Vec::new();
-        let mut printer = Printer::standard(Ansi::new(buf), false);
+        let mut printer = Printer::standard(Ansi::new(buf), false, false, false);
         let matcher = RegexMatcher::new("foo").unwrap();
         let mut searcher = SearcherBuilder::new().line_number(true).build();
         let data = b"line two foo\n";
