@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use grep_printer::Stats;
+use grep_printer::{Stats, SummaryKind};
 use grep_regex::RegexMatcher;
 use grep_searcher::{Searcher, SearcherBuilder};
 use opendal::{services::S3, Operator};
@@ -112,8 +112,20 @@ fn main() -> Result<()> {
 
     let mut printer = if cli.json {
         // JSON output is never colored; using a color-capable writer keeps the
-        // Printer type identical in both branches without affecting JSON.
+        // Printer type identical in the other branches without affecting JSON.
         Printer::json(StandardStream::stdout(ColorChoice::Never))
+    } else if cli.count {
+        Printer::summary(
+            StandardStream::stdout(cli.color.to_color_choice()),
+            SummaryKind::Count,
+            cli.stats,
+        )
+    } else if cli.files_with_matches {
+        Printer::summary(
+            StandardStream::stdout(cli.color.to_color_choice()),
+            SummaryKind::PathWithMatch,
+            cli.stats,
+        )
     } else {
         Printer::standard(
             StandardStream::stdout(cli.color.to_color_choice()),
@@ -268,5 +280,67 @@ mod tests {
         assert_eq!(ColorArg::Auto.to_color_choice(), ColorChoice::Auto);
         assert_eq!(ColorArg::Always.to_color_choice(), ColorChoice::Always);
         assert_eq!(ColorArg::Never.to_color_choice(), ColorChoice::Never);
+    }
+
+    #[test]
+    fn count_flag_parses() {
+        let cli = Cli::parse_from([
+            "rg-opendal",
+            "-c",
+            "pattern",
+            "s3://bucket/prefix",
+        ]);
+        assert!(cli.count);
+        assert!(!cli.files_with_matches);
+        assert!(!cli.json);
+    }
+
+    #[test]
+    fn files_with_matches_flag_parses() {
+        let cli = Cli::parse_from([
+            "rg-opendal",
+            "-l",
+            "pattern",
+            "s3://bucket/prefix",
+        ]);
+        assert!(cli.files_with_matches);
+        assert!(!cli.count);
+        assert!(!cli.json);
+    }
+
+    #[test]
+    fn count_conflicts_with_json() {
+        assert!(Cli::try_parse_from([
+            "rg-opendal",
+            "-c",
+            "--json",
+            "pattern",
+            "s3://bucket/prefix",
+        ])
+        .is_err());
+    }
+
+    #[test]
+    fn files_with_matches_conflicts_with_json() {
+        assert!(Cli::try_parse_from([
+            "rg-opendal",
+            "-l",
+            "--json",
+            "pattern",
+            "s3://bucket/prefix",
+        ])
+        .is_err());
+    }
+
+    #[test]
+    fn count_conflicts_with_files_with_matches() {
+        assert!(Cli::try_parse_from([
+            "rg-opendal",
+            "-c",
+            "-l",
+            "pattern",
+            "s3://bucket/prefix",
+        ])
+        .is_err());
     }
 }

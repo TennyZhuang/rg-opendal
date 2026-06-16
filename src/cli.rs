@@ -4,6 +4,7 @@
 //! FF2: `--glob/-g`, `--type/-t`, `--type-not/-T` over object keys.
 //! FF3: `--json`, `--stats`, `-A/-B/-C` context lines.
 //! FF4: `--color` output coloring.
+//! FF5: `-c/--count` and `-l/--files-with-matches`.
 
 use clap::Parser;
 use termcolor::ColorChoice;
@@ -71,6 +72,18 @@ pub struct Cli {
     /// `--json` output is never colored.
     #[arg(long = "color", value_enum, default_value_t = ColorArg::Auto)]
     pub color: ColorArg,
+
+    /// Show only a count of matching lines per file.
+    ///
+    /// Mutually exclusive with `--json` and `--files-with-matches`.
+    #[arg(short = 'c', long = "count", conflicts_with = "json", conflicts_with = "files_with_matches")]
+    pub count: bool,
+
+    /// Show only the names of files containing at least one match.
+    ///
+    /// Mutually exclusive with `--json` and `--count`.
+    #[arg(short = 'l', long = "files-with-matches", conflicts_with = "json", conflicts_with = "count")]
+    pub files_with_matches: bool,
 }
 
 /// `--color` argument values, mapped to `termcolor::ColorChoice`.
