@@ -4,7 +4,7 @@ use grep_printer::Stats;
 use grep_regex::RegexMatcher;
 use grep_searcher::{Searcher, SearcherBuilder};
 use opendal::{services::S3, Operator};
-use rg_opendal::cli::{Cli, ColorArg, Target};
+use rg_opendal::cli::{Cli, Target};
 use rg_opendal::printer::Printer;
 use rg_opendal::{opendal_io, walker};
 use std::io::Write;
@@ -182,6 +182,7 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rg_opendal::cli::ColorArg;
 
     #[test]
     fn context_counts_use_explicit_overrides() {
