@@ -12,6 +12,7 @@
 //! FF10: `-I/--no-filename` and `-H/--with-filename` path-prefix control
 //!        with auto-detection (single file → hide, multi file → show) per rg.
 //! FF11: `-0/--null` path terminator flag.
+//! FF12: `-z/--null-data` null-byte line terminator.
 
 use clap::Parser;
 use termcolor::ColorChoice;
@@ -143,6 +144,11 @@ pub struct Cli {
     /// Add a null byte after the file path (standard rg `-0/--null`).
     #[arg(short = '0', long = "null")]
     pub null: bool,
+
+    /// Use a null byte as the line terminator instead of newline.
+    /// Allows searching files with NUL-separated records (standard rg `-z/--null-data`).
+    #[arg(short = 'z', long = "null-data")]
+    pub null_data: bool,
 }
 
 /// `--color` argument values, mapped to `termcolor::ColorChoice`.
