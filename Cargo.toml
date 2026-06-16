@@ -28,3 +28,4 @@ clap = { version = "4", features = ["derive"] }
 termcolor = "1"
 ignore = "0.4"
 bytes = "1"
+regex = "1"

@@ -14,6 +14,7 @@
 //! FF11: `-0/--null` path terminator flag.
 //! FF12: `-z/--null-data` null-byte line terminator.
 //! FF13: `-a/--text` force text mode (disable binary detection).
+//! FF16: `-F/--fixed-strings` literal pattern matching.
 
 use clap::Parser;
 use termcolor::ColorChoice;
@@ -155,6 +156,10 @@ pub struct Cli {
     /// appear to contain binary data (standard rg `-a/--text`).
     #[arg(short = 'a', long = "text")]
     pub text: bool,
+
+    /// Treat the pattern as a literal string, not a regex (standard rg `-F/--fixed-strings`).
+    #[arg(short = 'F', long = "fixed-strings")]
+    pub fixed_strings: bool,
 }
 
 /// `--color` argument values, mapped to `termcolor::ColorChoice`.
